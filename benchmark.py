@@ -15,26 +15,17 @@ from gpu import (
     change_gamma_contrast_gpu_wrapper,
 )
 
-
-def benchmark_cpu(input_path, output_path):
-    image = load_image_to_array(input_path)
-    new_image_array = change_contrast_cpu(image, 1000)
-    save_image(output_path, new_image_array)
-
-
-def benchmark_gpu(input_path, output_path):
-    image = load_image_to_array(input_path)
-    new_image_array = change_contrast_gpu_wrapper(image, 1000)
-    save_image(output_path, new_image_array)
-
-
-def _time_function(fn, image_array, *args, repeats=3):
+def _time_function(fn, image_array, *args, repeats=3, use_gpu=False):
     fn(image_array.copy(), *args)
+    if use_gpu:
+        torch.cuda.synchronize()
 
     times = []
     for _ in range(repeats):
         start = time.perf_counter()
         fn(image_array.copy(), *args)
+        if use_gpu:
+            torch.cuda.synchronize()
         elapsed = time.perf_counter() - start
         times.append(elapsed)
 
@@ -61,14 +52,17 @@ def benchmark_cpu_vs_gpu(input_path, output_dir="images/output", repeats=3, prin
         print("-" * 50)
 
     for name, cpu_fn, gpu_fn, value in operations:
-        cpu_time = _time_function(cpu_fn, image, value, repeats=repeats)
-        gpu_time = _time_function(gpu_fn, image, value, repeats=repeats)
+        cpu_time = _time_function(cpu_fn, image, value, repeats=repeats, use_gpu=False)
+        gpu_time = _time_function(gpu_fn, image, value, repeats=repeats, use_gpu=True)
 
         cpu_output_path = os.path.join(output_dir, f"cpu_{name}.png")
         gpu_output_path = os.path.join(output_dir, f"gpu_{name}.png")
 
-        save_image(cpu_output_path, image)
-        save_image(gpu_output_path, image)
+        cpu_processed = cpu_fn(image.copy(), value)
+        gpu_processed = gpu_fn(image.copy(), value)
+
+        save_image(cpu_output_path, cpu_processed)
+        save_image(gpu_output_path, gpu_processed)
 
         if gpu_time < cpu_time:
             speedup = cpu_time / gpu_time
